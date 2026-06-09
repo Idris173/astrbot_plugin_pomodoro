@@ -108,12 +108,14 @@ class PomodoroPlugin(Star):
                 "umo": umo or "",
                 "enabled": False,
                 "completed_count": 0,
+                "active_user_id": "",
             },
         )
         if umo:
             group_state["umo"] = umo
         group_state.setdefault("enabled", False)
         group_state.setdefault("completed_count", 0)
+        group_state.setdefault("active_user_id", "")
         return group_state
 
     def _is_group_enabled(self, group_id: str) -> bool:
@@ -161,6 +163,13 @@ class PomodoroPlugin(Star):
             return event.plain_result(text)
         return event.chain_result([At(qq=sender_id), Plain(f"\n{text}")])
 
+    def _remember_active_user(self, group_id: str, event: AstrMessageEvent):
+        """记录当前群番茄钟的触发者，后续后台提醒会持续 @ 这个人。"""
+        sender_id = self._get_sender_id(event)
+        if sender_id:
+            group_state = self._get_group_state(group_id, event.unified_msg_origin)
+            group_state["active_user_id"] = sender_id
+
     # ==================== 消息发送与计时任务 ====================
 
     async def _send_to_group(self, group_id: str, text: str):
@@ -171,7 +180,12 @@ class PomodoroPlugin(Star):
             return
 
         try:
-            await self.context.send_message(umo, MessageChain([Plain(text)]))
+            active_user_id = str(group_state.get("active_user_id") or "").strip()
+            if active_user_id:
+                chain = [At(qq=active_user_id), Plain(f"\n{text}")]
+            else:
+                chain = [Plain(text)]
+            await self.context.send_message(umo, MessageChain(chain))
         except Exception as e:
             logger.error(f"番茄钟向群 {group_id} 发送消息失败: {e}")
 
@@ -320,6 +334,7 @@ class PomodoroPlugin(Star):
         async with self.state_lock:
             group_state = self._get_group_state(group_id, event.unified_msg_origin)
             group_state["enabled"] = True
+            self._remember_active_user(group_id, event)
             self._save_state()
 
         yield self._reply_with_at(event, "🍅 已开启当前群番茄钟功能。发送 /pomodoro start 可开始循环。")
@@ -349,6 +364,7 @@ class PomodoroPlugin(Star):
         async with self.state_lock:
             group_state = self._get_group_state(group_id, event.unified_msg_origin)
             group_state["enabled"] = True
+            self._remember_active_user(group_id, event)
             self._save_state()
 
         started = self._start_group_task(group_id)
