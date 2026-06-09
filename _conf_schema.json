@@ -1,0 +1,44 @@
+{
+  "auto_start_enabled_groups": {
+    "description": "启动后自动恢复已启用群的番茄钟循环",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后，AstrBot 启动时会为已开启功能的群自动开始番茄钟循环；默认关闭，避免重启后自动打扰群聊"
+  },
+  "work_minutes": {
+    "description": "专注时长（分钟）",
+    "type": "int",
+    "default": 25,
+    "hint": "每个番茄钟的专注时间，建议 25 分钟，测试时可设置为 1"
+  },
+  "short_break_minutes": {
+    "description": "短休息时长（分钟）",
+    "type": "int",
+    "default": 5,
+    "hint": "普通休息时长，建议 5 分钟"
+  },
+  "long_break_minutes": {
+    "description": "长休息时长（分钟）",
+    "type": "int",
+    "default": 15,
+    "hint": "完成多个番茄后的长休息时长，建议 15 分钟"
+  },
+  "long_break_every": {
+    "description": "长休息间隔",
+    "type": "int",
+    "default": 4,
+    "hint": "每完成几个番茄进入一次长休息，建议 4"
+  },
+  "remind_before_end_minutes": {
+    "description": "结束前提醒（分钟）",
+    "type": "int",
+    "default": 0,
+    "hint": "大于 0 时，会在专注/休息结束前提醒一次；0 表示不启用"
+  },
+  "allow_group_members_control": {
+    "description": "允许普通群成员控制",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后仍保留命令逻辑，但权限校验会提示需要管理员；当前版本不强依赖平台管理员接口，建议保持开启"
+  }
+}

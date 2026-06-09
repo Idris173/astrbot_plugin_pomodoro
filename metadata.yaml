@@ -1,0 +1,6 @@
+name: astrbot_plugin_pomodoro
+display_name: 番茄钟
+desc: 可通过 QQ 群机器人开启、关闭和运行的 AstrBot 番茄钟插件
+version: v1.0.0
+author: AstroBot User
+repo: https://github.com/example/astrbot_plugin_pomodoro
