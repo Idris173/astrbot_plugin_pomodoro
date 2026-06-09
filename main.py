@@ -510,11 +510,3 @@ class PomodoroPlugin(Star):
     async def pomodoro_help_cn(self, event: AstrMessageEvent):
         async for result in self.pomodoro_help(event):
             yield result
-
-    @filter.command("番茄钟")
-    async def pomodoro_default_cn(self, event: AstrMessageEvent):
-        yield self._reply_with_at(event, self._help_text())
-
-    @filter.command("pomodoro")
-    async def pomodoro_default(self, event: AstrMessageEvent):
-        yield self._reply_with_at(event, self._help_text())
