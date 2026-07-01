@@ -11,7 +11,8 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.message.message_event_result import MessageChain
 
 
-@register("astrbot_plugin_pomodoro", "Idris173", "群聊多人番茄钟插件", "1.1.0")
+@register("astrbot_plugin_pomodoro", "Idris173", "群聊多人番茄钟插件", "1.2.0")
+
 class PomodoroPlugin(Star):
     """一个可在 QQ 群内由多人分别开启独立计时器的番茄钟插件。"""
 
@@ -103,6 +104,29 @@ class PomodoroPlugin(Star):
         group_id = str(group_id).strip()
         return group_id or None
 
+    def _is_private(self, event: AstrMessageEvent) -> bool:
+        """判断是否为私聊消息（没有 group_id 即视为私聊）。"""
+        return self._get_group_id(event) is None
+
+    def _get_context_id(self, event: AstrMessageEvent) -> Optional[str]:
+        """返回统一的会话 id。
+
+        群聊返回 `group:群号`，私聊返回 `private:用户QQ`。
+        这样群聊和私聊都能复用同一套 state["groups"] 存储结构。
+        """
+        group_id = self._get_group_id(event)
+        if group_id:
+            return f"group:{group_id}"
+
+        user_id = self._get_sender_id(event)
+        if user_id:
+            return f"private:{user_id}"
+        return None
+
+    def _is_private_context(self, context_id: str) -> bool:
+        return str(context_id).startswith("private:")
+
+
     def _get_group_state(self, group_id: str, umo: Optional[str] = None) -> Dict[str, Any]:
         groups = self.state.setdefault("groups", {})
         group_state = groups.setdefault(
@@ -156,14 +180,16 @@ class PomodoroPlugin(Star):
         return bool(user_state.get("running", False))
 
     async def _ensure_group_context(self, event: AstrMessageEvent) -> Optional[str]:
-        group_id = self._get_group_id(event)
-        if not group_id:
+        """建立并返回当前会话上下文 id（群聊或私聊都支持）。"""
+        context_id = self._get_context_id(event)
+        if not context_id:
             return None
 
         async with self.state_lock:
-            self._get_group_state(group_id, event.unified_msg_origin)
+            self._get_group_state(context_id, event.unified_msg_origin)
             self._save_state()
-        return group_id
+        return context_id
+
 
     def _get_sender_id(self, event: AstrMessageEvent) -> Optional[str]:
         """尽量从不同 AstrBot/平台事件结构中提取触发命令的 QQ 号。"""
@@ -214,13 +240,15 @@ class PomodoroPlugin(Star):
             return
 
         try:
-            if user_id:
+            # 私聊会话下 @ 无意义，直接发纯文本；群聊则 @ 对应成员。
+            if user_id and not self._is_private_context(group_id):
                 chain = [At(qq=str(user_id)), Plain(f"\n{text}")]
             else:
                 chain = [Plain(text)]
             await self.context.send_message(umo, MessageChain(chain))
         except Exception as e:
-            logger.error(f"番茄钟向群 {group_id} 发送消息失败: {e}")
+            logger.error(f"番茄钟向会话 {group_id} 发送消息失败: {e}")
+
 
     def _start_user_task(self, group_id: str, user_id: str) -> bool:
         key = self._timer_key(group_id, user_id)
@@ -330,7 +358,7 @@ class PomodoroPlugin(Star):
 
     # ==================== 展示文本 ====================
 
-    def _status_text(self, group_id: str, user_id: Optional[str]) -> str:
+    def _status_text(self, group_id: str, user_id: Optional[str], is_private: bool = False) -> str:
         group_state = self.state.get("groups", {}).get(group_id, {})
         enabled = bool(group_state.get("enabled", False))
         running_count = self._get_running_user_count(group_id)
@@ -345,7 +373,14 @@ class PomodoroPlugin(Star):
                 f"你已完成番茄：{completed_count} 个\n"
             )
         else:
-            user_text = "无法获取你的 QQ 号，仅显示群状态。\n"
+            user_text = "无法获取你的 QQ 号，仅显示会话状态。\n"
+
+        if is_private:
+            return (
+                "🍅 你的番茄钟状态（私聊）\n"
+                f"{user_text}"
+                "说明：私聊里的番茄钟仅属于你自己。"
+            )
 
         return (
             "🍅 当前群番茄钟状态\n"
@@ -354,6 +389,7 @@ class PomodoroPlugin(Star):
             f"{user_text}"
             "说明：同一群内每个人都有独立 timer。"
         )
+
 
     def _config_text(self) -> str:
         return (
@@ -379,8 +415,10 @@ class PomodoroPlugin(Star):
             "/pomodoro help - 查看帮助\n\n"
             "中文命令：\n"
             "/番茄钟 开启、/番茄钟 关闭、/番茄钟 开始、/番茄钟 停止、/番茄钟 状态、/番茄钟 配置、/番茄钟 帮助\n\n"
-            "说明：同一群内不同成员可以同时开始自己的番茄钟，到时间只会 @ 对应成员。"
+            "说明：同一群内不同成员可以同时开始自己的番茄钟，到时间只会 @ 对应成员。\n"
+            "私聊也可直接使用 /番茄钟 开始、/番茄钟 停止、/番茄钟 状态（私聊无需开启，提醒不 @）。"
         )
+
 
     # ==================== 英文命令 ====================
 
@@ -388,7 +426,11 @@ class PomodoroPlugin(Star):
     async def pomodoro_on(self, event: AstrMessageEvent):
         group_id = await self._ensure_group_context(event)
         if not group_id:
-            yield self._reply_with_at(event, "番茄钟只能在群聊中使用。")
+            yield self._reply_with_at(event, "无法识别当前会话，无法开启番茄钟。")
+            return
+
+        if self._is_private(event):
+            yield self._reply_with_at(event, "🍅 私聊无需开启，直接发送 /番茄钟 开始 即可。")
             return
 
         async with self.state_lock:
@@ -402,7 +444,11 @@ class PomodoroPlugin(Star):
     async def pomodoro_off(self, event: AstrMessageEvent):
         group_id = await self._ensure_group_context(event)
         if not group_id:
-            yield self._reply_with_at(event, "番茄钟只能在群聊中使用。")
+            yield self._reply_with_at(event, "无法识别当前会话，无法关闭番茄钟。")
+            return
+
+        if self._is_private(event):
+            yield self._reply_with_at(event, "🍅 私聊无需关闭，如需停止番茄钟请发送 /番茄钟 停止。")
             return
 
         async with self.state_lock:
@@ -415,16 +461,18 @@ class PomodoroPlugin(Star):
         await self._stop_group_tasks(group_id)
         yield self._reply_with_at(event, "🍅 已关闭当前群番茄钟功能，并停止群内所有人的番茄钟。")
 
+
     @filter.command("pomodoro start")
     async def pomodoro_start(self, event: AstrMessageEvent):
         group_id = await self._ensure_group_context(event)
         user_id = self._get_sender_id(event)
         if not group_id:
-            yield self._reply_with_at(event, "番茄钟只能在群聊中使用。")
+            yield self._reply_with_at(event, "无法识别当前会话，无法开始番茄钟。")
             return
         if not user_id:
             yield event.plain_result("无法获取你的 QQ 号，不能为你创建独立番茄钟。")
             return
+
 
         async with self.state_lock:
             group_state = self._get_group_state(group_id, event.unified_msg_origin)
@@ -444,7 +492,7 @@ class PomodoroPlugin(Star):
         group_id = await self._ensure_group_context(event)
         user_id = self._get_sender_id(event)
         if not group_id:
-            yield self._reply_with_at(event, "番茄钟只能在群聊中使用。")
+            yield self._reply_with_at(event, "无法识别当前会话，无法停止番茄钟。")
             return
         if not user_id:
             yield event.plain_result("无法获取你的 QQ 号，不能停止你的独立番茄钟。")
@@ -456,15 +504,21 @@ class PomodoroPlugin(Star):
             self._save_state()
 
         await self._stop_user_task(group_id, user_id)
-        yield self._reply_with_at(event, "🍅 已停止你的番茄钟循环，群内其他人的 timer 不受影响。")
+        if self._is_private(event):
+            yield self._reply_with_at(event, "🍅 已停止你的番茄钟循环。")
+        else:
+            yield self._reply_with_at(event, "🍅 已停止你的番茄钟循环，群内其他人的 timer 不受影响。")
 
     @filter.command("pomodoro status")
     async def pomodoro_status(self, event: AstrMessageEvent):
         group_id = await self._ensure_group_context(event)
         if not group_id:
-            yield self._reply_with_at(event, "番茄钟只能在群聊中使用。")
+            yield self._reply_with_at(event, "无法识别当前会话，无法查看状态。")
             return
-        yield self._reply_with_at(event, self._status_text(group_id, self._get_sender_id(event)))
+        yield self._reply_with_at(
+            event, self._status_text(group_id, self._get_sender_id(event), self._is_private(event))
+        )
+
 
     @filter.command("pomodoro config")
     async def pomodoro_config(self, event: AstrMessageEvent):

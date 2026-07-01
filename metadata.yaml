@@ -1,6 +1,7 @@
 name: astrbot_plugin_pomodoro
 display_name: 番茄钟
-desc: 支持同群多人独立 timer，并到时间 @ 对应成员的 AstrBot 番茄钟插件
-version: v1.1.0
+desc: 支持同群多人独立 timer、私聊也可使用，并到时间 @ 对应成员的 AstrBot 番茄钟插件
+version: v1.2.0
+
 author: Idris173
 repo: https://github.com/Idris173/astrbot_plugin_pomodoro
